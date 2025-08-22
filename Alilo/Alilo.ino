@@ -1114,8 +1114,7 @@ void handleVibro() {
     Serial.print("STOP, duration = ");
     Serial.print(duration);
     Serial.println(" ms");
-
-    setHeadRGBVal(0, 0, 0);
+    //setHeadRGBVal(0, 0, 0);
   }
 
   vibrolastState = state;  // обновляем прошлое состояние
