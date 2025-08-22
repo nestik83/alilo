@@ -32,14 +32,14 @@
 
 #define COLOR_COUNT 9  // максимум цветов
 #define KFACTOR 1.7    // чувствительность корректировки (0.0 ... 2.0)
-#define COLOR_BLACK 0
-#define COLOR_BLUE 1
-#define COLOR_GREEN 2
+#define COLOR_BLACK  0
+#define COLOR_BLUE   1
+#define COLOR_GREEN  2
 #define COLOR_PURPLE 3
-#define COLOR_RED 4
-#define COLOR_WHITE 5
-#define COLOR_YALOW 6
-#define COLOR_GRAY 7
+#define COLOR_RED    4
+#define COLOR_WHITE  5
+#define COLOR_YALOW  6
+#define COLOR_GRAY   7
 #define COLOR_ORANGE 8
 
 #define EEPROM_ADDR_MODE 0
@@ -167,26 +167,32 @@ void setup() {
 
   digitalWrite(PLAYER_POWER, HIGH);
   digitalWrite(LED_DETECT_ANODE, LOW);
-  digitalWrite(LED_HEAD_ANODE, HIGH);
+  digitalWrite(LED_HEAD_ANODE,LOW);
   digitalWrite(LED_R, LOW);
-  digitalWrite(LED_G, HIGH);
+  digitalWrite(LED_G, LOW);
   digitalWrite(LED_B, LOW);
+  //
 
   loadState();
-  loadRefs();
-
+  
   if (digitalRead(BUTTON_DETECT_COLOR) == LOW) {
     unsigned long t0 = millis();
-    while (digitalRead(BUTTON_DETECT_COLOR) == LOW)
-      ;
-    if (millis() - t0 > 2000) {
-      if (digitalRead(BUTTON_MODE) == LOW) calibrate();
+    digitalWrite(PLAYER_TX, LOW);
+
+    // Ждем 2 секунды удержания
+    while (digitalRead(BUTTON_DETECT_COLOR) == LOW) {
+        if (millis() - t0 > 2000) {
+          if (digitalRead(BUTTON_MODE) == LOW) calibrate();
+          break; // выходим из if, чтобы не зависнуть
+        }
     }
   }
 
+  loadRefs();
+
   mp3Serial.begin(9600);
 
-  delay(600);
+  delay(500);
   playerOn();
   if (currentMode < 3) {
     mp3.playFolder(currentFolder, currentTrack);
@@ -538,6 +544,7 @@ void handleBatteryControl() {
 
   if (Vpow < 3100 && !low_voltage) {
     low_voltage = true;
+    FTTOff = true;
     if (!offVolume) mp3.playFolder(7, 1);
   } else if (Vpow < 4450 && Vusb) {
     lastActiveTime = millis();
@@ -636,35 +643,34 @@ void calibrate() {
   blinkHeadRGB(0, 0, 1, 3);  // вход в режим калибровки (синий мигает)
   
   clearColorMemory();        //Очистка эталонов в EEPROM
-  clearColorMemory();        //Очистка эталонов в EEPROM
+  loadRefs();
 
   for (int idx = 0; idx < COLOR_COUNT; idx++) {
     Serial.print("Ожидание кнопки для калибровки цвета #");
     Serial.println(idx);
 
-    switch (idx) {
-        case COLOR_BLACK:
-          setHeadRGBVal(0, 0, 0); 
-        case COLOR_BLUE:
-          setHeadRGBVal(0, 0, 255);
-        case COLOR_GREEN:
-          setHeadRGBVal(0, 255, 0);
-        case COLOR_PURPLE:
-          setHeadRGBVal(255, 0, 255);
-        case COLOR_RED:
-          setHeadRGBVal(255, 0, 0);
-        case COLOR_WHITE:
-          setHeadRGBVal(255, 255, 255);
-        case COLOR_YALOW:
-          setHeadRGBVal(200, 255, 0);
-        case COLOR_GRAY:
-          setHeadRGBVal(80, 80, 80);
-        case COLOR_ORANGE:
-          setHeadRGBVal(255, 80, 0);
-        default:
-          setHeadRGBVal(0, 0, 0);    
+    if(idx == COLOR_BLACK){
+      setHeadRGBVal(0, 0, 0); 
+    } else if (idx == COLOR_BLUE) {
+      setHeadRGBVal(0, 0, 255); 
+    } else if (idx == COLOR_GREEN) {
+      setHeadRGBVal(0, 255, 0);   
+    }  else if (idx == COLOR_PURPLE) {
+      setHeadRGBVal(255, 0, 200);   
+    }  else if (idx == COLOR_RED) {
+      setHeadRGBVal(255, 0, 0);   
+    }  else if (idx == COLOR_WHITE) {
+      setHeadRGBVal(255, 255, 255);   
+    }  else if (idx == COLOR_YALOW) {
+      setHeadRGBVal(200, 255, 0);   
+    }  else if (idx == COLOR_GRAY) {
+      setHeadRGBVal(80, 80, 80);   
+    }  else if (idx == COLOR_ORANGE) {
+      setHeadRGBVal(255, 80, 0);    
+    }  else  {
+      setHeadRGBVal(255, 255, 255);   
     }
-    
+
     // Ждём нажатие
     PressType t = NONE;
     while (t == NONE) {
