@@ -642,6 +642,29 @@ void calibrate() {
     Serial.print("Ожидание кнопки для калибровки цвета #");
     Serial.println(idx);
 
+    switch (idx) {
+        case COLOR_BLACK:
+          setHeadRGBVal(0, 0, 0); 
+        case COLOR_BLUE:
+          setHeadRGBVal(0, 0, 255);
+        case COLOR_GREEN:
+          setHeadRGBVal(0, 255, 0);
+        case COLOR_PURPLE:
+          setHeadRGBVal(255, 0, 255);
+        case COLOR_RED:
+          setHeadRGBVal(255, 0, 0);
+        case COLOR_WHITE:
+          setHeadRGBVal(255, 255, 255);
+        case COLOR_YALOW:
+          setHeadRGBVal(200, 255, 0);
+        case COLOR_GRAY:
+          setHeadRGBVal(80, 80, 80);
+        case COLOR_ORANGE:
+          setHeadRGBVal(255, 80, 0);
+        default:
+          setHeadRGBVal(0, 0, 0);    
+    }
+    
     // Ждём нажатие
     PressType t = NONE;
     while (t == NONE) {
@@ -890,7 +913,7 @@ void handleColorDetect() {
 
   if (state == LOW && buttonWasPressed) {
     // кнопка удерживается
-    if (!ClongPressHandled && millis() - pressStart >= 2000) {
+    if (!ClongPressHandled && millis() - pressStart >= 1000) {
       // длинное нажатие
       lastActiveTime = millis();
       int color = detectColor();
@@ -901,7 +924,7 @@ void handleColorDetect() {
           setHeadRGBVal(0, 0, 0);
           Serial.println("Черный");
           mp3.playFolder(5, 10);
-          delay(3500);
+          delay(2500);
           mp3.playFolder(5, 1);
           break;
         case COLOR_BLUE:
@@ -910,7 +933,7 @@ void handleColorDetect() {
           setHeadRGBVal(0, 0, 255);
           Serial.println("Синий");
           mp3.playFolder(5, 11);
-          delay(3500);
+          delay(2500);
           mp3.playFolder(5, 2);
           break;
         case COLOR_GREEN:
@@ -919,7 +942,7 @@ void handleColorDetect() {
           setHeadRGBVal(0, 255, 0);
           Serial.println("Зеленый");
           mp3.playFolder(5, 12);
-          delay(3500);
+          delay(2500);
           mp3.playFolder(5, 3);
           break;
         case COLOR_PURPLE:
@@ -928,7 +951,7 @@ void handleColorDetect() {
           setHeadRGBVal(255, 0, 255);
           Serial.println("Фиолетовый");
           mp3.playFolder(5, 13);
-          delay(3500);
+          delay(3000);
           mp3.playFolder(5, 4);
           break;
         case COLOR_RED:
@@ -937,7 +960,7 @@ void handleColorDetect() {
           setHeadRGBVal(255, 0, 0);
           Serial.println("Красный");
           mp3.playFolder(5, 14);
-          delay(3500);
+          delay(2500);
           mp3.playFolder(5, 5);
           break;
         case COLOR_WHITE:
@@ -946,7 +969,7 @@ void handleColorDetect() {
           setHeadRGBVal(255, 255, 255);
           Serial.println("Белый");
           mp3.playFolder(5, 15);
-          delay(3500);
+          delay(2500);
           FTTOff = true;
           mp3.playFolder(5, 6);
           break;
@@ -956,7 +979,7 @@ void handleColorDetect() {
           setHeadRGBVal(255, 255, 0);
           Serial.println("Желтый");
           mp3.playFolder(5, 16);
-          delay(3500);
+          delay(2500);
           FTTOff = true;
           mp3.playFolder(5, 7);
           break;
@@ -966,7 +989,7 @@ void handleColorDetect() {
           setHeadRGBVal(50, 50, 50);
           Serial.println("Серый");
           mp3.playFolder(5, 17);
-          delay(3500);
+          delay(2500);
           FTTOff = true;
           mp3.playFolder(5, 8);
           break;
@@ -976,7 +999,7 @@ void handleColorDetect() {
           setHeadRGBVal(255, 100, 0);
           Serial.println("Оранжевый");
           mp3.playFolder(5, 18);
-          delay(3500);
+          delay(3000);
           FTTOff = true;
           mp3.playFolder(5, 9);
           break;
@@ -1120,31 +1143,6 @@ void handleVibro() {
   vibrolastState = state;  // обновляем прошлое состояние
 }
 
-
-// void handleVibro() {
-//   int state = digitalRead(VIBRO_PIN);
-
-//   // если есть импульс от датчика
-//   if (state == LOW && !offVolume) {
-//     vibroLastPulse = millis();
-//     if (!vibroActive) {
-//       vibroActive = true;
-//       vibroStart = millis();
-//       Serial.println("START");
-//       playNextTrack();
-//     }
-//   }
-
-//   // если вибрация была, но нет импульсов дольше таймаута
-//   if (vibroActive && (millis() - vibroLastPulse > VIBRO_TIMEOUT)) {
-//     vibroActive = false;
-//     unsigned long duration = millis() - vibroStart;
-//     Serial.print("STOP, duration = ");
-//     Serial.print(duration);
-//     Serial.println(" ms");
-//   }
-// }
-
 bool isVibroActive() {
   return vibroActive;
 }
@@ -1157,37 +1155,6 @@ void playNextTrack() {
   Serial.println(vibroCurrentTrack);
   mp3.playFolder(4, vibroCurrentTrack);
 }
-
-// void handleVibroPlayer() {
-//   static unsigned long lastTrackEnd = 0;
-
-//   if (!isVibroActive()) return;
-
-//   bool busy = (digitalRead(PLAYER_BUSY) == LOW);
-
-//   if (busy && !vibroBusyWasLow) {
-//     vibroBusyLowSince = millis();
-//     vibroBusyWasLow = true;
-//   }
-
-//   if (!busy && vibroBusyWasLow && (millis() - vibroBusyLowSince >= 1000)) {  // трек закончился
-//     if (millis() - lastTrackEnd < 500) return; // антидребезг BUSY
-
-//     lastTrackEnd = millis();
-//     vibroBusyWasLow = false; // сбросить флаг
-//     vibroRepeatCount++;
-
-//     if (vibroRepeatCount < 3) {
-//       Serial.print("Repeat track: ");
-//       Serial.println(vibroCurrentTrack);
-//       mp3.playFolder(4, vibroCurrentTrack);
-//     } else {
-//       Serial.print("Switch track after 3 repeats: ");
-//       playNextTrack();
-//     }
-
-//   }
-// }
 
 void handleVibroPlayer() {
   static unsigned long trackStartTime = 0;
