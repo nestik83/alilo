@@ -5,8 +5,6 @@
 #include <EEPROM.h>
 #include <avr/sleep.h>
 #include <arduinoFFT.h>
-#include <avr/io.h>
-#include <avr/wdt.h>
 
 #define USB_POWER_DETECT 3
 
@@ -118,35 +116,10 @@ ArduinoFFT<double> FFT = ArduinoFFT<double>(vReal, vImag, SAMPLES, SAMPLING_FREQ
 SoftwareSerial mp3Serial(PLAYER_RX, PLAYER_TX);  // Подключи RX/TX DFPlayer сюда
 DFRobotDFPlayerMini mp3;
 
-uint8_t resetReason __attribute__ ((section (".noinit")));  
-
-void getResetReason(void) __attribute__((naked)) __attribute__((section(".init0")));
-
-void getResetReason(void) {
-  resetReason = MCUSR;   // сохранили причину сброса
-  MCUSR = 0;             // очистили, чтобы не мешало дальше
-  wdt_disable();         // на всякий случай отключим WDT на старте
-}
-
 void setup() {
-
-  wdt_disable();
 
   Serial.begin(9600);
   Serial.println("--------init---------");
-  
-  Serial.print("MCUSR=");
-  Serial.println(resetReason, BIN);
- 
-  if (resetReason & (1 << PORF))  Serial.println("Power-on Reset");
-  if (resetReason & (1 << EXTRF)) Serial.println("External Reset");
-  if (resetReason & (1 << BORF))  Serial.println("Brown-out Reset");
-  if (resetReason & (1 << WDRF))  Serial.println("Watchdog Reset");
-  
-  //delay(5000);
-
-  //VDTCR|=0b10000000;
-  //VDTCR&=0b10111111;
   
   analogReadResolution(12);
   analogReference(INTERNAL1V024);
@@ -165,6 +138,7 @@ void setup() {
   pinMode(BUTTON_MODE, INPUT_PULLUP);
   pinMode(USB_POWER_DETECT, INPUT);
 
+  digitalWrite(BUTTON_MODE, HIGH);
   digitalWrite(PLAYER_POWER, HIGH);
   digitalWrite(LED_DETECT_ANODE, LOW);
   digitalWrite(LED_HEAD_ANODE,LOW);
@@ -173,6 +147,7 @@ void setup() {
   digitalWrite(LED_B, LOW);
   //
 
+  detachInterrupt(digitalPinToInterrupt(USB_POWER_DETECT));
   loadState();
   
   if (digitalRead(BUTTON_DETECT_COLOR) == LOW) {
@@ -441,16 +416,9 @@ void goToSleep() {
   delay(50);
 
   set_sleep_mode(SLEEP_MODE_PWR_DOWN);
-  cli();
-
+  
   sleep_enable();
 
-  // Отключение BOD на время сна: последовательность записи в MCUCR
-  // (для классического ATmega328P — BODS/BODSE; в LGT ядре обычно совместимо)
-  MCUCR |= _BV(BODS) | _BV(BODSE);
-  MCUCR = (MCUCR & ~_BV(BODSE)) | _BV(BODS);
-
-  sei();
   attachInterrupt(digitalPinToInterrupt(BUTTON_MODE), wakeUp, LOW);        // Пробуждение по нажатию
   attachInterrupt(digitalPinToInterrupt(USB_POWER_DETECT), wakeUp, HIGH);  // Пробуждение по зарядке
   delay(1000);
@@ -458,6 +426,7 @@ void goToSleep() {
 
   // Проснулись
   sleep_disable();
+  detachInterrupt(digitalPinToInterrupt(USB_POWER_DETECT));
   detachInterrupt(digitalPinToInterrupt(BUTTON_MODE));                                 // убираем пробуждающее прерывание
   attachInterrupt(digitalPinToInterrupt(BUTTON_MODE), handleButtonInterrupt, CHANGE);  // восстанавливаем обычную ISR
 
@@ -656,7 +625,7 @@ void calibrate() {
     } else if (idx == COLOR_GREEN) {
       setHeadRGBVal(0, 255, 0);   
     }  else if (idx == COLOR_PURPLE) {
-      setHeadRGBVal(255, 0, 200);   
+      setHeadRGBVal(255, 0, 150);   
     }  else if (idx == COLOR_RED) {
       setHeadRGBVal(255, 0, 0);   
     }  else if (idx == COLOR_WHITE) {
@@ -664,7 +633,7 @@ void calibrate() {
     }  else if (idx == COLOR_YALOW) {
       setHeadRGBVal(200, 255, 0);   
     }  else if (idx == COLOR_GRAY) {
-      setHeadRGBVal(80, 80, 80);   
+      setHeadRGBVal(20, 20, 20);   
     }  else if (idx == COLOR_ORANGE) {
       setHeadRGBVal(255, 80, 0);    
     }  else  {
@@ -826,16 +795,6 @@ ColorRef measureColor() {
   c.blue = measureChannel(0, 0, 1);
 
   c.voltage = getVsupply();
-
-  //int maxVal = max(c.red, max(c.green, c.blue));
-
-  //if (maxVal > 0) {
-  //  c.red   = (int)((c.red   * 100.0) / maxVal);
-  //  c.green = (int)((c.green * 100.0) / maxVal);
-  //  c.blue  = (int)((c.blue  * 100.0) / maxVal);
-  //} else {
-  //  c.red = c.green = c.blue = 0;
-  //}
 
   Serial.print("Измерение цвета:");
   Serial.print(c.red);
@@ -1010,12 +969,7 @@ void handleColorDetect() {
           mp3.playFolder(5, 9);
           break;
         default:
-          //FTTOff = true;
-          //setHeadRGBVal(255,100,0);
           Serial.println("Неизвестный цвет");
-          //mp3.playFolder(5, 18);
-          //delay(2000);
-          //mp3.playFolder(5, 9);
           break;
       }
       ClongPressHandled = true;  // чтобы не повторялось пока не отпустим
@@ -1120,7 +1074,6 @@ void handleVibro() {
       vibroActive = true;
       vibroStart = millis();
       Serial.println("START");
-      //playNextTrack();
     }
 
     int r = random(0, 2) * 255;
@@ -1131,9 +1084,6 @@ void handleVibro() {
     if (r == 0 && g == 0 && b == 0) r = 255;
 
     setHeadRGBVal(r, g, b);
-    //analogWrite(LED_R, r);
-    //analogWrite(LED_G, g);
-    //analogWrite(LED_B, b);
   }
 
   // если вибрация была, но нет импульсов дольше таймаута
@@ -1143,7 +1093,6 @@ void handleVibro() {
     Serial.print("STOP, duration = ");
     Serial.print(duration);
     Serial.println(" ms");
-    //setHeadRGBVal(0, 0, 0);
   }
 
   vibrolastState = state;  // обновляем прошлое состояние
@@ -1177,8 +1126,7 @@ void handleVibroPlayer() {
   // если трек не играет — запустить
   if (!trackPlaying) {
     vibroCurrentTrack++;
-    if (vibroCurrentTrack > 33) vibroCurrentTrack = 1;  // допустим у нас 10 треков в папке
-    //vibroCurrentTrack = getNextVibroTrack();  // если у тебя есть функция выбора трека
+    if (vibroCurrentTrack > 33) vibroCurrentTrack = 1;  // 33 треков в папке
     mp3.playFolder(4, vibroCurrentTrack);
     trackStartTime = currentMillis;
     trackPlaying = true;
