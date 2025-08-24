@@ -7,6 +7,7 @@
 #include <arduinoFFT.h>
 
 #define USB_POWER_DETECT 3
+#define DETECT_CHARGE 7
 
 #define BUTTON_MODE 2
 #define BUTTON_DETECT_COLOR 4
@@ -19,7 +20,6 @@
 
 #define PLAYER_POWER 8
 #define PLAYER_BUSY 12
-#define PLAYER_RX 7
 #define PLAYER_TX 13
 #define PLAYER_DAC_L A2   // Пин аудио линейного входа для светомузыки
 #define PLAYER_VOLUME A1  // Пин регулировки громкости
@@ -113,7 +113,7 @@ double vImag[SAMPLES];
 ArduinoFFT<double> FFT = ArduinoFFT<double>(vReal, vImag, SAMPLES, SAMPLING_FREQUENCY);
 // Player
 
-SoftwareSerial mp3Serial(PLAYER_RX, PLAYER_TX);  // Подключи RX/TX DFPlayer сюда
+SoftwareSerial mp3Serial(-1, PLAYER_TX);  // Подключи RX/TX DFPlayer сюда
 DFRobotDFPlayerMini mp3;
 
 void setup() {
@@ -131,7 +131,7 @@ void setup() {
   pinMode(LED_HEAD_ANODE, OUTPUT);
   pinMode(PLAYER_POWER, OUTPUT);
   pinMode(PLAYER_TX, OUTPUT);
-  pinMode(PLAYER_RX, INPUT);
+  pinMode(DETECT_CHARGE, INPUT_PULLUP);
   pinMode(VIBRO_PIN, INPUT_PULLUP);
   pinMode(PLAYER_BUSY, INPUT_PULLUP);
   pinMode(BUTTON_DETECT_COLOR, INPUT_PULLUP);
@@ -504,7 +504,8 @@ void handleSleepControl() {
 void handleBatteryControl() {
   uint32_t Vpow = getVsupply();
   bool Vusb = digitalRead(USB_POWER_DETECT);
-
+  bool Icharge = digitalRead(DETECT_CHARGE);
+  
   if (millis() - lastPowPrint > 2000) {
     Serial.print("Vpow-");
     Serial.println(Vpow);
@@ -515,12 +516,12 @@ void handleBatteryControl() {
     low_voltage = true;
     FTTOff = true;
     if (!offVolume) mp3.playFolder(7, 1);
-  } else if (Vpow < 4450 && Vusb) {
+  } else if (!Icharge && Vusb) {
     lastActiveTime = millis();
     low_voltage = false;
     FTTOff = true;
     blinkChannel(LED_G, 500);
-  } else if (Vpow >= 4450 && Vusb) {
+  } else if (Icharge && Vusb) {
     lastActiveTime = millis();
     low_voltage = false;
     FTTOff = true;
