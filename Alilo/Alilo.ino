@@ -138,7 +138,6 @@ void setup() {
   pinMode(BUTTON_MODE, INPUT_PULLUP);
   pinMode(USB_POWER_DETECT, INPUT);
 
-  digitalWrite(BUTTON_MODE, HIGH);
   digitalWrite(PLAYER_POWER, HIGH);
   digitalWrite(LED_DETECT_ANODE, LOW);
   digitalWrite(LED_HEAD_ANODE,LOW);
@@ -501,34 +500,45 @@ void handleSleepControl() {
   }
 }
 
-void handleBatteryControl() {
+
+void handleBatteryControl() { 
+  static uint32_t lowVoltStart = 0; // момент первого обнаружения < 3.1 В
   uint32_t Vpow = getVsupply();
   bool Vusb = digitalRead(USB_POWER_DETECT);
   bool Icharge = digitalRead(DETECT_CHARGE);
-  
+
   if (millis() - lastPowPrint > 2000) {
     Serial.print("Vpow-");
     Serial.println(Vpow);
     lastPowPrint = millis();
   }
 
-  if (Vpow < 3100 && !low_voltage) {
-    low_voltage = true;
-    FTTOff = true;
-    if (!offVolume) mp3.playFolder(7, 1);
-  } else if (!Icharge && Vusb) {
-    lastActiveTime = millis();
-    low_voltage = false;
-    FTTOff = true;
-    blinkChannel(LED_G, 500);
-  } else if (Icharge && Vusb) {
-    lastActiveTime = millis();
-    low_voltage = false;
-    FTTOff = true;
-    setHeadRGB(0, 1, 0);
+  // Логика задержки при низком напряжении
+  if (Vpow < 3300) {
+    if (lowVoltStart == 0) { 
+      lowVoltStart = millis(); // запоминаем время первого падения
+    } else if (millis() - lowVoltStart >= 10000 && !low_voltage) { 
+      // прошло 10 секунд ниже порога
+      low_voltage = true;
+      FTTOff = true;
+      if (!offVolume) mp3.playFolder(7, 1);
+    }
   } else {
-    if (!colorDetected && !low_voltage) FTTOff = false;
-    //low_voltage = false;
+    lowVoltStart = 0; // сброс, если напряжение снова выше
+  }
+
+  if (!low_voltage) {
+    if (!Icharge && Vusb) {
+      lastActiveTime = millis();
+      FTTOff = true;
+      blinkChannel(LED_G, 500);
+    } else if (Icharge && Vusb) {
+      lastActiveTime = millis();
+      FTTOff = true;
+      setHeadRGB(0, 1, 0);
+    } else {
+      if (!colorDetected) FTTOff = false;
+    }
   }
 
   if (low_voltage) {
@@ -536,6 +546,44 @@ void handleBatteryControl() {
     return;  // ничего больше не делаем при низком напряжении
   }
 }
+
+// void handleBatteryControl() {
+//   uint32_t Vpow = getVsupply();
+//   bool Vusb = digitalRead(USB_POWER_DETECT);
+//   bool Icharge = digitalRead(DETECT_CHARGE);
+  
+//   if (millis() - lastPowPrint > 2000) {
+//     Serial.print("Vpow-");
+//     Serial.println(Vpow);
+//     lastPowPrint = millis();
+//   }
+
+//   if (Vpow < 3100 && !low_voltage) {
+//     low_voltage = true;
+//     FTTOff = true;
+//     Serial.print("Low voltage:");
+//     Serial.println(Vpow);
+//     if (!offVolume) mp3.playFolder(7, 1);
+//   } else if (!Icharge && Vusb) {
+//     lastActiveTime = millis();
+//     low_voltage = false;
+//     FTTOff = true;
+//     blinkChannel(LED_G, 500);
+//   } else if (Icharge && Vusb) {
+//     lastActiveTime = millis();
+//     low_voltage = false;
+//     FTTOff = true;
+//     setHeadRGB(0, 1, 0);
+//   } else {
+//     if (!colorDetected && !low_voltage) FTTOff = false;
+//     //low_voltage = false;
+//   }
+
+//   if (low_voltage) {
+//     blinkChannel(LED_R, 500);
+//     return;  // ничего больше не делаем при низком напряжении
+//   }
+// }
 
 void blinkChannel(int colorPin, unsigned long interval) {
   static unsigned long lastBlinkTime = 0;
@@ -1044,7 +1092,6 @@ void playerOn() {
 void handleVibro() {
   static int vibrolastState = HIGH;  // хранит предыдущее состояние пина
   int state = digitalRead(VIBRO_PIN);
-
   if (offVolume) {
     if (!FTTOff) {
       //if (currentMode == 3) {
@@ -1067,10 +1114,13 @@ void handleVibro() {
   }
   // проверяем переход HIGH -> LOW
   if (vibrolastState == HIGH && state == LOW && !offVolume) {
-    Serial.println("Pulse");
+    Serial.print("Pulse:");
+    Serial.println(getVsupply());
     colorDetected = false;
     lastActiveTime = millis();
     vibroLastPulse = millis();
+    low_voltage = false;
+
     if (!vibroActive) {
       vibroActive = true;
       vibroStart = millis();
