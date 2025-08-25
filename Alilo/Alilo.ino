@@ -170,8 +170,10 @@ void setup() {
   playerOn();
   if (currentMode < 3) {
     mp3.playFolder(currentFolder, currentTrack);
-  } else {
+  } else if (currentMode == 3) {
     mp3.playFolder(7, 2);
+  } else {
+    mp3.playFolder(7, 3);  
   }
   Serial.print("Setup-");
   Serial.print(getVsupply());
@@ -193,11 +195,12 @@ void loop() {
   handleButtonModeLogic();
   if (currentMode < 3) {
     handleMainPlayer();
-  } else {
+  } else if (currentMode == 3) {
     handleVibro();
     handleVibroPlayer();
+  } else {
+    handleColorDetect();
   }
-  handleColorDetect();
   handleBatteryControl();
 }
 
@@ -268,22 +271,22 @@ void handleButtonModeLogic() {
       low_voltage = false;
       FTTOff = false;
       colorDetected = false;
-      currentMode = (currentMode + 1) % 4;
+      currentMode = (currentMode + 1) % 5;
 
       currentFolder = (currentMode < 3) ? currentMode + 1 : currentFolder;
-      currentTrack = currentTrackMem[currentMode];
+      currentTrack = (currentMode < 3) ? currentTrackMem[currentMode]: currentTrack;
       saveState();
 
       if (currentMode < 3) {
         trackManuallyChanged = true;
         //manualChangeTime = millis();
         mp3.playFolder(currentFolder, currentTrack);
-      } else {
+      } else if (currentMode == 3){
         trackManuallyChanged = true;
         //manualChangeTime = millis();
         mp3.playFolder(7, 2);
-        delay(2500);
-        mp3.stop();
+      } else {
+        mp3.playFolder(7, 3);  
       }
 
       Serial.print("Long-");
@@ -459,8 +462,10 @@ void goToSleep() {
     trackManuallyChanged = true;
     if (currentMode < 3) {
       mp3.playFolder(currentFolder, currentTrack);
-    } else {
+    } else if (currentMode == 3){
       mp3.playFolder(7, 2);
+    } else {
+      mp3.playFolder(7, 3);  
     }
     Serial.print("Wakup-");
     Serial.print(getVsupply());
@@ -611,13 +616,17 @@ void blinkChannel(int colorPin, unsigned long interval) {
 }
 
 void loadState() {
-  currentMode = constrain(EEPROM.read(EEPROM_ADDR_MODE), 0, 3);
+  currentMode = constrain(EEPROM.read(EEPROM_ADDR_MODE), 0, 4);
   currentTrackMem[0] = constrain(EEPROM.read(EEPROM_ADDR_TRACK_01), 1, tracksInFolder[1]);
   currentTrackMem[1] = constrain(EEPROM.read(EEPROM_ADDR_TRACK_02), 1, tracksInFolder[2]);
   currentTrackMem[2] = constrain(EEPROM.read(EEPROM_ADDR_TRACK_03), 1, tracksInFolder[3]);
-  currentTrack = currentTrackMem[currentMode];
   currentFolder = currentMode + 1;
-  if (currentFolder > 3) currentFolder = 3;
+  if (currentFolder > 3) {
+    currentTrack = currentTrackMem[0];
+    currentFolder = 1;
+  } else {
+    currentTrack = currentTrackMem[currentMode];
+  }
   nightEffect = constrain(EEPROM.read(EEPROM_ADDR_NIGHT_EFFECT), 0, 4);
 }
 
@@ -675,17 +684,17 @@ void calibrate() {
     } else if (idx == COLOR_GREEN) {
       setHeadRGBVal(0, 255, 0);   
     }  else if (idx == COLOR_PURPLE) {
-      setHeadRGBVal(255, 0, 150);   
+      setHeadRGBVal(255, 0, 100);   
     }  else if (idx == COLOR_RED) {
       setHeadRGBVal(255, 0, 0);   
     }  else if (idx == COLOR_WHITE) {
       setHeadRGBVal(255, 255, 255);   
     }  else if (idx == COLOR_YALOW) {
-      setHeadRGBVal(200, 255, 0);   
+      setHeadRGBVal(150, 255, 0);   
     }  else if (idx == COLOR_GRAY) {
       setHeadRGBVal(20, 20, 20);   
     }  else if (idx == COLOR_ORANGE) {
-      setHeadRGBVal(255, 80, 0);    
+      setHeadRGBVal(255, 100, 0);    
     }  else  {
       setHeadRGBVal(255, 255, 255);   
     }
@@ -913,9 +922,31 @@ void setHeadRGB(bool r, bool g, bool b) {
 }
 
 void handleColorDetect() {
+  
   static unsigned long pressStart = 0;    // время начала нажатия
   static bool buttonWasPressed = false;   // флаг, что кнопка уже нажата
   static bool ClongPressHandled = false;  // флаг, что длинное нажатие обработано
+
+  if (offVolume) {
+    if (!FTTOff) {
+      //if (currentMode == 3) {
+      if (nightEffect == 0) {
+        animateIdleColor();  // "ночной режим 0"
+      } else if (nightEffect == 1) {
+        setHeadRGBVal(255, 255, 255);  // "ночной режим 1"
+      } else if (nightEffect == 2) {
+        setHeadRGBVal(255, 0, 0);  // "ночной режим 2"
+      } else if (nightEffect == 3) {
+        setHeadRGBVal(0, 255, 0);  // "ночной режим 3"
+      } else if (nightEffect == 4) {
+        setHeadRGBVal(0, 0, 255);  // "ночной режим 4"
+      }
+      //} else {
+      //  animateIdleColor();  // на паузе
+      //}
+    }
+    return;
+  }
 
   bool state = digitalRead(BUTTON_DETECT_COLOR);
 
@@ -963,7 +994,7 @@ void handleColorDetect() {
         case COLOR_PURPLE:
           FTTOff = true;
           colorDetected = true;
-          setHeadRGBVal(255, 0, 255);
+          setHeadRGBVal(255, 0, 100);
           Serial.println("Фиолетовый");
           mp3.playFolder(5, 13);
           delay(3000);
@@ -991,7 +1022,7 @@ void handleColorDetect() {
         case COLOR_YALOW:
           FTTOff = true;
           colorDetected = true;
-          setHeadRGBVal(255, 255, 0);
+          setHeadRGBVal(150, 255, 0);
           Serial.println("Желтый");
           mp3.playFolder(5, 16);
           delay(2500);
@@ -1001,7 +1032,7 @@ void handleColorDetect() {
         case COLOR_GRAY:
           FTTOff = true;
           colorDetected = true;
-          setHeadRGBVal(50, 50, 50);
+          setHeadRGBVal(20, 20, 20);
           Serial.println("Серый");
           mp3.playFolder(5, 17);
           delay(2500);
@@ -1054,8 +1085,10 @@ void handleVolumeControl() {
           setHeadRGBVal(0, 0, 0);
           if (currentMode < 3) {
             mp3.playFolder(currentFolder, currentTrack);
-          } else {
+          } else if (currentMode == 3) {
             mp3.playFolder(7, 2);
+          } else {
+            mp3.playFolder(7, 3); 
           }
           Serial.print("VolOn-");
           Serial.print(getVsupply());
@@ -1094,7 +1127,6 @@ void playerOn() {
 
 void handleVibro() {
   static int vibrolastState = HIGH;  // хранит предыдущее состояние пина
-  int state = digitalRead(VIBRO_PIN);
   if (offVolume) {
     if (!FTTOff) {
       //if (currentMode == 3) {
@@ -1115,6 +1147,8 @@ void handleVibro() {
     }
     return;
   }
+  int state = digitalRead(VIBRO_PIN);
+  
   // проверяем переход HIGH -> LOW
   if (vibrolastState == HIGH && state == LOW && !offVolume) {
     Serial.print("Pulse:");
