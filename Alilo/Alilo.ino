@@ -453,6 +453,7 @@ void goToSleep() {
   delay(1000);
   int raw = analogRead(PLAYER_VOLUME);
   volume = map(raw, 0, 4000, 0, 30);
+  if (volume > 25) volume = 25;
   if (volume > 0) {
     playerOn();  // Включаем плеер
     trackManuallyChanged = true;
@@ -1040,6 +1041,7 @@ void handleVolumeControl() {
     lastUpdate = millis();
     int raw = analogRead(PLAYER_VOLUME);
     volume = map(raw, 0, 4000, 0, 30);
+    if (volume > 25) volume = 25;
     if (volume != lastVolume) {
       if (volume == 0) {
         Serial.println("VolOff");
@@ -1086,6 +1088,7 @@ void playerOn() {
   mp3.begin(mp3Serial, false, false);
   int raw = analogRead(PLAYER_VOLUME);
   volume = map(raw, 0, 4000, 0, 30);
+  if (volume > 25) volume = 25;
   mp3.volume(volume);
 }
 
