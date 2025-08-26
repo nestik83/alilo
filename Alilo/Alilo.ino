@@ -960,6 +960,7 @@ void handleVolumeControl() {
       if (volume == 0) {
         Serial.println("VolOff");
         playerOff();
+        colorDetected = false;
         offVolume = true;
       } else {
         if (offVolume) {
