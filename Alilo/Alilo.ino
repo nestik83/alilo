@@ -350,21 +350,11 @@ void runFFT() {
     else if (freq < 1000) mid += vReal[i];
     else high += vReal[i];
 
-    // Вывод спектра для мониторинга
-    //Serial.print(freq, 0);
-    //Serial.print(",");
-    //Serial.println(vReal[i], 0);
   }
 
   if (low < 100) low = 0;
   if (mid < 300) mid = 0;
   if (high < 500) high = 0;
-
-  //Serial.print(low, 0);
-  //Serial.print(",");
-  //Serial.print(mid, 0);
-  //Serial.print(",");
-  //Serial.println(high, 0);
 
   low = constrain(low / 50, 0, 255);
   mid = constrain(mid / 50, 0, 255);
