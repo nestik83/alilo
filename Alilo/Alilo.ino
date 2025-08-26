@@ -5,6 +5,7 @@
 #include <EEPROM.h>
 #include <avr/sleep.h>
 #include <arduinoFFT.h>
+#include <OneButton.h>
 
 #define USB_POWER_DETECT 3
 #define DETECT_CHARGE 7
@@ -30,14 +31,14 @@
 
 #define COLOR_COUNT 9  // максимум цветов
 #define KFACTOR 1.7    // чувствительность корректировки (0.0 ... 2.0)
-#define COLOR_BLACK  0
-#define COLOR_BLUE   1
-#define COLOR_GREEN  2
+#define COLOR_BLACK 0
+#define COLOR_BLUE 1
+#define COLOR_GREEN 2
 #define COLOR_PURPLE 3
-#define COLOR_RED    4
-#define COLOR_WHITE  5
-#define COLOR_YALOW  6
-#define COLOR_GRAY   7
+#define COLOR_RED 4
+#define COLOR_WHITE 5
+#define COLOR_YALOW 6
+#define COLOR_GRAY 7
 #define COLOR_ORANGE 8
 
 #define EEPROM_ADDR_MODE 0
@@ -100,27 +101,21 @@ const int tracksInFolder[NUM_FOLDERS + 1] = { 0, 30, 33, 32 };  // Индекс 
 int currentTrack = 1;
 int currentFolder = 1;
 bool trackManuallyChanged = false;
-volatile bool buttonPressed = false;
-volatile unsigned long modePressStart = 0;
-bool longPressHandled = false;
-bool buttonReleasedHandled = true;  // для защиты от повторного срабатывания
-unsigned long lastDebounceTime = 0;
-const unsigned long debounceDelay = 50;  // 50 мс задержка
 unsigned long busyLowStartTime = 0;
 bool wasBusyLow = false;
 double vReal[SAMPLES];
 double vImag[SAMPLES];
+OneButton buttonMode(BUTTON_MODE, true);  // true = кнопка подключена к GND и использует INPUT_PULLUP
 ArduinoFFT<double> FFT = ArduinoFFT<double>(vReal, vImag, SAMPLES, SAMPLING_FREQUENCY);
-// Player
-
 SoftwareSerial mp3Serial(-1, PLAYER_TX);  // Подключи RX/TX DFPlayer сюда
 DFRobotDFPlayerMini mp3;
+// Player
 
 void setup() {
 
   Serial.begin(9600);
   Serial.println("--------init---------");
-  
+
   analogReadResolution(12);
   analogReference(INTERNAL1V024);
 
@@ -140,29 +135,35 @@ void setup() {
 
   digitalWrite(PLAYER_POWER, HIGH);
   digitalWrite(LED_DETECT_ANODE, LOW);
-  digitalWrite(LED_HEAD_ANODE,LOW);
+  digitalWrite(LED_HEAD_ANODE, LOW);
   digitalWrite(LED_R, LOW);
   digitalWrite(LED_G, LOW);
   digitalWrite(LED_B, LOW);
   //
 
+
+
   detachInterrupt(digitalPinToInterrupt(USB_POWER_DETECT));
   loadState();
-  
+
   if (digitalRead(BUTTON_DETECT_COLOR) == LOW) {
     unsigned long t0 = millis();
     digitalWrite(PLAYER_TX, LOW);
 
     // Ждем 2 секунды удержания
     while (digitalRead(BUTTON_DETECT_COLOR) == LOW) {
-        if (millis() - t0 > 2000) {
-          if (digitalRead(BUTTON_MODE) == LOW) calibrate();
-          break; // выходим из if, чтобы не зависнуть
-        }
+      if (millis() - t0 > 2000) {
+        if (digitalRead(BUTTON_MODE) == LOW) calibrate();
+        break;  // выходим из if, чтобы не зависнуть
+      }
     }
   }
 
   loadRefs();
+
+  buttonMode.attachClick(modeSingleClick);
+  buttonMode.attachDoubleClick(modeDoubleClick);
+  buttonMode.attachLongPressStart(modeLongPress);
 
   mp3Serial.begin(9600);
 
@@ -173,7 +174,7 @@ void setup() {
   } else if (currentMode == 3) {
     mp3.playFolder(7, 2);
   } else {
-    mp3.playFolder(7, 3);  
+    mp3.playFolder(7, 3);
   }
   Serial.print("Setup-");
   Serial.print(getVsupply());
@@ -182,7 +183,7 @@ void setup() {
   Serial.print(",");
   Serial.println(currentTrack);
 
-  attachInterrupt(digitalPinToInterrupt(BUTTON_MODE), handleButtonInterrupt, CHANGE);
+  //attachInterrupt(digitalPinToInterrupt(BUTTON_MODE), handleButtonInterrupt, CHANGE);
   lastActiveTime = millis();
   lastPowPrint = millis();
   delay(500);
@@ -192,7 +193,8 @@ void loop() {
 
   handleSleepControl();
   handleVolumeControl();
-  handleButtonModeLogic();
+  buttonMode.tick();
+  
   if (currentMode < 3) {
     handleMainPlayer();
   } else if (currentMode == 3) {
@@ -202,6 +204,73 @@ void loop() {
     handleColorDetect();
   }
   handleBatteryControl();
+}
+
+
+void modeSingleClick() {
+  lastActiveTime = millis();
+  if (!offVolume && currentMode < 3) {
+    low_voltage = false;
+    FTTOff = false;
+    colorDetected = false;
+    currentTrack++;
+    if (currentTrack > tracksInFolder[currentFolder]) currentTrack = 1;
+    currentTrackMem[currentMode] = currentTrack;
+    saveState();
+    trackManuallyChanged = true;
+    mp3.playFolder(currentFolder, currentTrack);
+    Serial.print("Short-");
+    Serial.print(getVsupply());
+    Serial.print(",");
+    Serial.print(currentMode);
+    Serial.print(",");
+    Serial.println(currentTrack);
+  } else if (offVolume) {
+    trackManuallyChanged = true;
+    nightEffect++;
+    if (nightEffect > 4) nightEffect = 0;
+    Serial.print("Night-");
+    Serial.print(getVsupply());
+    Serial.print(",");
+    Serial.print(currentMode);
+    Serial.print(",");
+    Serial.println(nightEffect);
+    saveState();
+  }
+}
+
+void modeDoubleClick() {
+  Serial.println("Двойное нажатие");
+}
+
+void modeLongPress() {
+  if (!offVolume) {
+    low_voltage = false;
+    FTTOff = false;
+    colorDetected = false;
+    currentMode = (currentMode + 1) % 5;
+
+    currentFolder = (currentMode < 3) ? currentMode + 1 : currentFolder;
+    currentTrack = (currentMode < 3) ? currentTrackMem[currentMode] : currentTrack;
+    saveState();
+
+    trackManuallyChanged = true;
+
+    if (currentMode < 3) {
+      mp3.playFolder(currentFolder, currentTrack);
+    } else if (currentMode == 3) {
+      mp3.playFolder(7, 2);
+    } else {
+      mp3.playFolder(7, 3);
+    }
+
+    Serial.print("Long-");
+    Serial.print(getVsupply());
+    Serial.print(",");
+    Serial.print(currentMode);
+    Serial.print(",");
+    Serial.println(currentTrack);
+  }
 }
 
 void handleMainPlayer() {
@@ -214,7 +283,6 @@ void handleMainPlayer() {
       wasBusyLow = true;
     }
 
-    //lastActiveTime = millis(); // обновляем активность
     if (!FTTOff) {
       runFFT();  // визуализация
     }
@@ -240,7 +308,6 @@ void handleMainPlayer() {
       wasBusyLow = false;
     }
     if (!FTTOff) {
-      //if (currentMode == 3) {
       if (nightEffect == 0) {
         animateIdleColor();  // "ночной режим 0"
       } else if (nightEffect == 1) {
@@ -252,94 +319,8 @@ void handleMainPlayer() {
       } else if (nightEffect == 4) {
         setHeadRGBVal(0, 0, 255);  // "ночной режим 4"
       }
-      //} else {
-      //  animateIdleColor();  // на паузе
-      //}
     }
   }
-}
-
-void handleButtonModeLogic() {
-  static bool lastButtonState = HIGH;
-  bool currentState = digitalRead(BUTTON_MODE);
-
-  if (buttonPressed && !longPressHandled) {
-    lastActiveTime = millis();
-    unsigned long duration = millis() - modePressStart;
-
-    if (!offVolume && duration >= 2000) {
-      low_voltage = false;
-      FTTOff = false;
-      colorDetected = false;
-      currentMode = (currentMode + 1) % 5;
-
-      currentFolder = (currentMode < 3) ? currentMode + 1 : currentFolder;
-      currentTrack = (currentMode < 3) ? currentTrackMem[currentMode]: currentTrack;
-      saveState();
-
-      if (currentMode < 3) {
-        trackManuallyChanged = true;
-        //manualChangeTime = millis();
-        mp3.playFolder(currentFolder, currentTrack);
-      } else if (currentMode == 3){
-        trackManuallyChanged = true;
-        //manualChangeTime = millis();
-        mp3.playFolder(7, 2);
-      } else {
-        mp3.playFolder(7, 3);  
-      }
-
-      Serial.print("Long-");
-      Serial.print(getVsupply());
-      Serial.print(",");
-      Serial.print(currentMode);
-      Serial.print(",");
-      Serial.println(currentTrack);
-
-      longPressHandled = true;
-    }
-  }
-
-  // Короткое нажатие (по отпусканию кнопки)
-  if (lastButtonState == LOW && currentState == HIGH && !buttonReleasedHandled) {
-    lastActiveTime = millis();
-    unsigned long duration = millis() - modePressStart;
-
-    if (!offVolume && duration < 800 && currentMode < 3) {
-      low_voltage = false;
-      FTTOff = false;
-      colorDetected = false;
-      currentTrack++;
-      if (currentTrack > tracksInFolder[currentFolder]) currentTrack = 1;
-      currentTrackMem[currentMode] = currentTrack;
-      saveState();
-      trackManuallyChanged = true;
-      //manualChangeTime = millis();
-      mp3.playFolder(currentFolder, currentTrack);
-
-      Serial.print("Short-");
-      Serial.print(getVsupply());
-      Serial.print(",");
-      Serial.print(currentMode);
-      Serial.print(",");
-      Serial.println(currentTrack);
-    } else if (offVolume && duration < 800) {
-      trackManuallyChanged = true;
-      nightEffect++;
-      if (nightEffect > 4) nightEffect = 0;
-      Serial.print("Night-");
-      Serial.print(getVsupply());
-      Serial.print(",");
-      Serial.print(currentMode);
-      Serial.print(",");
-      Serial.println(nightEffect);
-      saveState();
-    }
-
-    buttonReleasedHandled = true;
-  }
-
-  lastButtonState = currentState;
 }
 
 void runFFT() {
@@ -414,11 +395,11 @@ void goToSleep() {
   sleeping = true;
   offVolume = false;
   Serial.println("Sleep");
-  detachInterrupt(digitalPinToInterrupt(BUTTON_MODE));  // Отвязываем ISR
+  //detachInterrupt(digitalPinToInterrupt(BUTTON_MODE));  // Отвязываем ISR
   delay(50);
 
   set_sleep_mode(SLEEP_MODE_PWR_DOWN);
-  
+
   sleep_enable();
 
   attachInterrupt(digitalPinToInterrupt(BUTTON_MODE), wakeUp, LOW);        // Пробуждение по нажатию
@@ -430,7 +411,7 @@ void goToSleep() {
   sleep_disable();
   detachInterrupt(digitalPinToInterrupt(USB_POWER_DETECT));
   detachInterrupt(digitalPinToInterrupt(BUTTON_MODE));                                 // убираем пробуждающее прерывание
-  attachInterrupt(digitalPinToInterrupt(BUTTON_MODE), handleButtonInterrupt, CHANGE);  // восстанавливаем обычную ISR
+  //attachInterrupt(digitalPinToInterrupt(BUTTON_MODE), handleButtonInterrupt, CHANGE);  // восстанавливаем обычную ISR
 
   if (digitalRead(USB_POWER_DETECT) == LOW) {
     unsigned long sleepPressStart = millis();
@@ -462,10 +443,10 @@ void goToSleep() {
     trackManuallyChanged = true;
     if (currentMode < 3) {
       mp3.playFolder(currentFolder, currentTrack);
-    } else if (currentMode == 3){
+    } else if (currentMode == 3) {
       mp3.playFolder(7, 2);
     } else {
-      mp3.playFolder(7, 3);  
+      mp3.playFolder(7, 3);
     }
     Serial.print("Wakup-");
     Serial.print(getVsupply());
@@ -481,56 +462,37 @@ void goToSleep() {
   lastActiveTime = millis();
 }
 
-void handleButtonInterrupt() {
-  unsigned long currentTime = millis();
-  if ((currentTime - lastDebounceTime) > debounceDelay) {
-    lastDebounceTime = currentTime;
-
-    if (digitalRead(BUTTON_MODE) == LOW) {
-      buttonPressed = true;
-      modePressStart = currentTime;
-      longPressHandled = false;
-      buttonReleasedHandled = false;
-    } else {
-      buttonPressed = false;
-    }
-  }
-}
-
 void handleSleepControl() {
-  //if (!sleeping && millis() - lastActiveTime > 2400000) {
-
   if (!sleeping && millis() - lastActiveTime > 2400000) {
     goToSleep();
     return;
   }
 }
 
-
-void handleBatteryControl() { 
-  static uint32_t lowVoltStart = 0; // момент первого обнаружения < 3.1 В
+void handleBatteryControl() {
+  static uint32_t lowVoltStart = 0;  // момент первого обнаружения < 3.1 В
   uint32_t Vpow = getVsupply();
   bool Vusb = digitalRead(USB_POWER_DETECT);
   bool Icharge = digitalRead(DETECT_CHARGE);
 
-  if (millis() - lastPowPrint > 2000) {
-    Serial.print("Vpow-");
-    Serial.println(Vpow);
-    lastPowPrint = millis();
-  }
+  //if (millis() - lastPowPrint > 2000) {
+  //  Serial.print("Vpow-");
+  //  Serial.println(Vpow);
+  //  lastPowPrint = millis();
+  //}
 
   // Логика задержки при низком напряжении
   if (Vpow < 3300) {
-    if (lowVoltStart == 0) { 
-      lowVoltStart = millis(); // запоминаем время первого падения
-    } else if (millis() - lowVoltStart >= 10000 && !low_voltage) { 
+    if (lowVoltStart == 0) {
+      lowVoltStart = millis();  // запоминаем время первого падения
+    } else if (millis() - lowVoltStart >= 10000 && !low_voltage) {
       // прошло 10 секунд ниже порога
       low_voltage = true;
       FTTOff = true;
       if (!offVolume) mp3.playFolder(7, 1);
     }
   } else {
-    lowVoltStart = 0; // сброс, если напряжение снова выше
+    lowVoltStart = 0;  // сброс, если напряжение снова выше
   }
 
   if (!low_voltage) {
@@ -552,44 +514,6 @@ void handleBatteryControl() {
     return;  // ничего больше не делаем при низком напряжении
   }
 }
-
-// void handleBatteryControl() {
-//   uint32_t Vpow = getVsupply();
-//   bool Vusb = digitalRead(USB_POWER_DETECT);
-//   bool Icharge = digitalRead(DETECT_CHARGE);
-  
-//   if (millis() - lastPowPrint > 2000) {
-//     Serial.print("Vpow-");
-//     Serial.println(Vpow);
-//     lastPowPrint = millis();
-//   }
-
-//   if (Vpow < 3100 && !low_voltage) {
-//     low_voltage = true;
-//     FTTOff = true;
-//     Serial.print("Low voltage:");
-//     Serial.println(Vpow);
-//     if (!offVolume) mp3.playFolder(7, 1);
-//   } else if (!Icharge && Vusb) {
-//     lastActiveTime = millis();
-//     low_voltage = false;
-//     FTTOff = true;
-//     blinkChannel(LED_G, 500);
-//   } else if (Icharge && Vusb) {
-//     lastActiveTime = millis();
-//     low_voltage = false;
-//     FTTOff = true;
-//     setHeadRGB(0, 1, 0);
-//   } else {
-//     if (!colorDetected && !low_voltage) FTTOff = false;
-//     //low_voltage = false;
-//   }
-
-//   if (low_voltage) {
-//     blinkChannel(LED_R, 500);
-//     return;  // ничего больше не делаем при низком напряжении
-//   }
-// }
 
 void blinkChannel(int colorPin, unsigned long interval) {
   static unsigned long lastBlinkTime = 0;
@@ -669,34 +593,34 @@ void blinkHeadRGB(int r, int g, int b, int times, int delayMs = 500) {
 void calibrate() {
 
   blinkHeadRGB(0, 0, 1, 3);  // вход в режим калибровки (синий мигает)
-  
-  clearColorMemory();        //Очистка эталонов в EEPROM
+
+  clearColorMemory();  //Очистка эталонов в EEPROM
   loadRefs();
 
   for (int idx = 0; idx < COLOR_COUNT; idx++) {
     Serial.print("Ожидание кнопки для калибровки цвета #");
     Serial.println(idx);
 
-    if(idx == COLOR_BLACK){
-      setHeadRGBVal(0, 0, 0); 
+    if (idx == COLOR_BLACK) {
+      setHeadRGBVal(0, 0, 0);
     } else if (idx == COLOR_BLUE) {
-      setHeadRGBVal(0, 0, 255); 
+      setHeadRGBVal(0, 0, 255);
     } else if (idx == COLOR_GREEN) {
-      setHeadRGBVal(0, 255, 0);   
-    }  else if (idx == COLOR_PURPLE) {
-      setHeadRGBVal(255, 0, 100);   
-    }  else if (idx == COLOR_RED) {
-      setHeadRGBVal(255, 0, 0);   
-    }  else if (idx == COLOR_WHITE) {
-      setHeadRGBVal(255, 255, 255);   
-    }  else if (idx == COLOR_YALOW) {
-      setHeadRGBVal(150, 255, 0);   
-    }  else if (idx == COLOR_GRAY) {
-      setHeadRGBVal(20, 20, 20);   
-    }  else if (idx == COLOR_ORANGE) {
-      setHeadRGBVal(255, 100, 0);    
-    }  else  {
-      setHeadRGBVal(255, 255, 255);   
+      setHeadRGBVal(0, 255, 0);
+    } else if (idx == COLOR_PURPLE) {
+      setHeadRGBVal(255, 0, 100);
+    } else if (idx == COLOR_RED) {
+      setHeadRGBVal(255, 0, 0);
+    } else if (idx == COLOR_WHITE) {
+      setHeadRGBVal(255, 255, 255);
+    } else if (idx == COLOR_YALOW) {
+      setHeadRGBVal(150, 255, 0);
+    } else if (idx == COLOR_GRAY) {
+      setHeadRGBVal(20, 20, 20);
+    } else if (idx == COLOR_ORANGE) {
+      setHeadRGBVal(255, 100, 0);
+    } else {
+      setHeadRGBVal(255, 255, 255);
     }
 
     // Ждём нажатие
@@ -781,33 +705,6 @@ bool isSimilar(ColorRef a, ColorRef b, bool calibrate) {
   float ared = a.red * k;
   float agreen = a.green * k;
   float ablue = a.blue * k;
-
-  //Serial.print("Коэфициент корректировки:");
-  //Serial.print(rawK);
-  //Serial.print("|");
-  //Serial.print(k);
-  //Serial.print("|");
-  //Serial.print(b.voltage);
-  //Serial.print("|");
-  //Serial.print(getVsupply());
-  //Serial.print("|");
-  //Serial.print(b.red);
-  //Serial.print("|");
-  //Serial.print(a.red);
-  //Serial.print("|");
-  //Serial.print(ared);
-  //Serial.print("|");
-  //Serial.print(b.green);
-  //Serial.print("|");
-  //Serial.print(a.green);
-  //Serial.print("|");
-  //Serial.print(agreen);
-  //Serial.print("|");
-  //Serial.print(b.blue);
-  //Serial.print("|");
-  //Serial.print(a.blue);
-  //Serial.print("|");
-  //Serial.println(ablue);
 
   bool mr = (ared >= b.red * (1 - TOLERANCE)) && (ared <= b.red * (1 + TOLERANCE));
   bool mg = (agreen >= b.green * (1 - TOLERANCE)) && (agreen <= b.green * (1 + TOLERANCE));
@@ -922,14 +819,13 @@ void setHeadRGB(bool r, bool g, bool b) {
 }
 
 void handleColorDetect() {
-  
+
   static unsigned long pressStart = 0;    // время начала нажатия
   static bool buttonWasPressed = false;   // флаг, что кнопка уже нажата
   static bool ClongPressHandled = false;  // флаг, что длинное нажатие обработано
-
+  
   if (offVolume) {
     if (!FTTOff) {
-      //if (currentMode == 3) {
       if (nightEffect == 0) {
         animateIdleColor();  // "ночной режим 0"
       } else if (nightEffect == 1) {
@@ -941,9 +837,6 @@ void handleColorDetect() {
       } else if (nightEffect == 4) {
         setHeadRGBVal(0, 0, 255);  // "ночной режим 4"
       }
-      //} else {
-      //  animateIdleColor();  // на паузе
-      //}
     }
     return;
   }
@@ -970,7 +863,7 @@ void handleColorDetect() {
           setHeadRGBVal(0, 0, 0);
           Serial.println("Черный");
           mp3.playFolder(5, 10);
-          delay(2500);
+          delay(2000);
           mp3.playFolder(5, 1);
           break;
         case COLOR_BLUE:
@@ -979,7 +872,7 @@ void handleColorDetect() {
           setHeadRGBVal(0, 0, 255);
           Serial.println("Синий");
           mp3.playFolder(5, 11);
-          delay(2500);
+          delay(2000);
           mp3.playFolder(5, 2);
           break;
         case COLOR_GREEN:
@@ -988,7 +881,7 @@ void handleColorDetect() {
           setHeadRGBVal(0, 255, 0);
           Serial.println("Зеленый");
           mp3.playFolder(5, 12);
-          delay(2500);
+          delay(2000);
           mp3.playFolder(5, 3);
           break;
         case COLOR_PURPLE:
@@ -997,7 +890,7 @@ void handleColorDetect() {
           setHeadRGBVal(255, 0, 100);
           Serial.println("Фиолетовый");
           mp3.playFolder(5, 13);
-          delay(3000);
+          delay(2500);
           mp3.playFolder(5, 4);
           break;
         case COLOR_RED:
@@ -1006,7 +899,7 @@ void handleColorDetect() {
           setHeadRGBVal(255, 0, 0);
           Serial.println("Красный");
           mp3.playFolder(5, 14);
-          delay(2500);
+          delay(2000);
           mp3.playFolder(5, 5);
           break;
         case COLOR_WHITE:
@@ -1015,8 +908,7 @@ void handleColorDetect() {
           setHeadRGBVal(255, 255, 255);
           Serial.println("Белый");
           mp3.playFolder(5, 15);
-          delay(2500);
-          FTTOff = true;
+          delay(2000);
           mp3.playFolder(5, 6);
           break;
         case COLOR_YALOW:
@@ -1025,8 +917,7 @@ void handleColorDetect() {
           setHeadRGBVal(150, 255, 0);
           Serial.println("Желтый");
           mp3.playFolder(5, 16);
-          delay(2500);
-          FTTOff = true;
+          delay(2000);
           mp3.playFolder(5, 7);
           break;
         case COLOR_GRAY:
@@ -1035,8 +926,7 @@ void handleColorDetect() {
           setHeadRGBVal(20, 20, 20);
           Serial.println("Серый");
           mp3.playFolder(5, 17);
-          delay(2500);
-          FTTOff = true;
+          delay(2000);
           mp3.playFolder(5, 8);
           break;
         case COLOR_ORANGE:
@@ -1045,8 +935,7 @@ void handleColorDetect() {
           setHeadRGBVal(255, 100, 0);
           Serial.println("Оранжевый");
           mp3.playFolder(5, 18);
-          delay(3000);
-          FTTOff = true;
+          delay(2500);
           mp3.playFolder(5, 9);
           break;
         default:
@@ -1088,7 +977,7 @@ void handleVolumeControl() {
           } else if (currentMode == 3) {
             mp3.playFolder(7, 2);
           } else {
-            mp3.playFolder(7, 3); 
+            mp3.playFolder(7, 3);
           }
           Serial.print("VolOn-");
           Serial.print(getVsupply());
@@ -1129,7 +1018,6 @@ void handleVibro() {
   static int vibrolastState = HIGH;  // хранит предыдущее состояние пина
   if (offVolume) {
     if (!FTTOff) {
-      //if (currentMode == 3) {
       if (nightEffect == 0) {
         animateIdleColor();  // "ночной режим 0"
       } else if (nightEffect == 1) {
@@ -1141,14 +1029,11 @@ void handleVibro() {
       } else if (nightEffect == 4) {
         setHeadRGBVal(0, 0, 255);  // "ночной режим 4"
       }
-      //} else {
-      //  animateIdleColor();  // на паузе
-      //}
     }
     return;
   }
   int state = digitalRead(VIBRO_PIN);
-  
+
   // проверяем переход HIGH -> LOW
   if (vibrolastState == HIGH && state == LOW && !offVolume) {
     Serial.print("Pulse:");
@@ -1224,7 +1109,7 @@ void handleVibroPlayer() {
   }
 
   // проверяем, прошло ли 2.5 секунды
-  if (trackPlaying && currentMillis - trackStartTime >= 2500) {
+  if (trackPlaying && currentMillis - trackStartTime >= 1500) {
     if (isVibroActive()) {
       vibroRepeatCount++;
       if (vibroRepeatCount < 3) {
