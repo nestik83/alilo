@@ -93,6 +93,7 @@ bool ledState = false;
 //Контроль питания и сна
 
 // Player
+bool repeatTrack = false;
 uint8_t currentMode = 0;
 uint8_t currentTrackMem[3] = { 1, 1, 1 };
 uint8_t nightEffect = 0;
@@ -208,6 +209,7 @@ void loop() {
 
 
 void modeSingleClick() {
+  repeatTrack = false;
   lastActiveTime = millis();
   if (!offVolume && currentMode < 3) {
     low_voltage = false;
@@ -241,9 +243,13 @@ void modeSingleClick() {
 
 void modeDoubleClick() {
   Serial.println("Двойное нажатие");
+  lastActiveTime = millis();
+  repeatTrack = true;
 }
 
 void modeLongPress() {
+  repeatTrack = false;
+  lastActiveTime = millis();
   if (!offVolume) {
     low_voltage = false;
     FTTOff = false;
@@ -291,11 +297,12 @@ void handleMainPlayer() {
     if (!offVolume && wasBusyLow) {
       if (!trackManuallyChanged && millis() - busyLowStartTime > 5000) {
         // Если BUSY был LOW дольше 5 секунд → трек завершён
-        currentTrack++;
-        if (currentTrack > tracksInFolder[currentFolder]) currentTrack = 1;
-        currentTrackMem[currentMode] = currentTrack;
-        saveState();
-        mp3.playFolder(currentFolder, currentTrack);
+        if (!repeatTrack) {
+          currentTrack++;
+          if (currentTrack > tracksInFolder[currentFolder]) currentTrack = 1;
+          currentTrackMem[currentMode] = currentTrack;
+          saveState();
+        } 
         mp3.playFolder(currentFolder, currentTrack);
         Serial.print("Next-");
         Serial.print(getVsupply());
