@@ -140,10 +140,7 @@ void setup() {
   digitalWrite(LED_R, LOW);
   digitalWrite(LED_G, LOW);
   digitalWrite(LED_B, LOW);
-  //
-
-
-
+  
   detachInterrupt(digitalPinToInterrupt(USB_POWER_DETECT));
   loadState();
 
@@ -184,7 +181,6 @@ void setup() {
   Serial.print(",");
   Serial.println(currentTrack);
 
-  //attachInterrupt(digitalPinToInterrupt(BUTTON_MODE), handleButtonInterrupt, CHANGE);
   lastActiveTime = millis();
   lastPowPrint = millis();
   delay(500);
@@ -207,6 +203,16 @@ void loop() {
   handleBatteryControl();
 }
 
+void blinkHeadRGB(int r, int g, int b, int times, int delayMs = 500) {
+  Serial.println("Мигаем");
+  for (int i = 0; i < times; i++) {
+    setHeadRGB(r, g, b);
+    delay(delayMs);
+    setHeadRGB(0, 0, 0);
+    delay(delayMs);
+  }
+  digitalWrite(LED_HEAD_ANODE, LOW);
+}
 
 void modeSingleClick() {
   repeatTrack = false;
@@ -244,7 +250,10 @@ void modeSingleClick() {
 void modeDoubleClick() {
   Serial.println("Двойное нажатие");
   lastActiveTime = millis();
-  repeatTrack = true;
+  if (!offVolume) {
+    repeatTrack = true;
+    blinkHeadRGB(0,1,0,4,100);
+  }  
 }
 
 void modeLongPress() {
@@ -392,7 +401,7 @@ void goToSleep() {
   sleeping = true;
   offVolume = false;
   Serial.println("Sleep");
-  //detachInterrupt(digitalPinToInterrupt(BUTTON_MODE));  // Отвязываем ISR
+  
   delay(50);
 
   set_sleep_mode(SLEEP_MODE_PWR_DOWN);
@@ -408,8 +417,7 @@ void goToSleep() {
   sleep_disable();
   detachInterrupt(digitalPinToInterrupt(USB_POWER_DETECT));
   detachInterrupt(digitalPinToInterrupt(BUTTON_MODE));                                 // убираем пробуждающее прерывание
-  //attachInterrupt(digitalPinToInterrupt(BUTTON_MODE), handleButtonInterrupt, CHANGE);  // восстанавливаем обычную ISR
-
+  
   if (digitalRead(USB_POWER_DETECT) == LOW) {
     unsigned long sleepPressStart = millis();
     bool sleepLongPress = false;
@@ -573,17 +581,6 @@ int detectColor() {
     }
   }
   return -1;
-}
-
-void blinkHeadRGB(int r, int g, int b, int times, int delayMs = 500) {
-  Serial.println("Мигаем");
-  for (int i = 0; i < times; i++) {
-    setHeadRGB(r, g, b);
-    delay(delayMs);
-    setHeadRGB(0, 0, 0);
-    delay(delayMs);
-  }
-  digitalWrite(LED_HEAD_ANODE, LOW);
 }
 
 // ================= Калибровка =================
