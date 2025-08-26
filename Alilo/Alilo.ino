@@ -250,7 +250,7 @@ void modeSingleClick() {
 void modeDoubleClick() {
   Serial.println("Двойное нажатие");
   lastActiveTime = millis();
-  if (!offVolume) {
+  if (!offVolume && currentMode < 3) {
     repeatTrack = true;
     blinkHeadRGB(0,1,0,4,100);
   }  
@@ -1103,7 +1103,7 @@ void handleVibroPlayer() {
   }
 
   // проверяем, прошло ли 2.5 секунды
-  if (trackPlaying && currentMillis - trackStartTime >= 1500) {
+  if (trackPlaying && currentMillis - trackStartTime >= 2000) {
     if (isVibroActive()) {
       vibroRepeatCount++;
       if (vibroRepeatCount < 3) {
