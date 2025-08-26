@@ -1011,6 +1011,8 @@ void playerOn() {
 
 void handleVibro() {
   static int vibrolastState = HIGH;  // хранит предыдущее состояние пина
+  int state = digitalRead(VIBRO_PIN);
+
   if (offVolume) {
     if (!FTTOff) {
       if (nightEffect == 0) {
@@ -1027,8 +1029,7 @@ void handleVibro() {
     }
     return;
   }
-  int state = digitalRead(VIBRO_PIN);
-
+  
   // проверяем переход HIGH -> LOW
   if (vibrolastState == HIGH && state == LOW && !offVolume) {
     Serial.print("Pulse:");
@@ -1104,7 +1105,7 @@ void handleVibroPlayer() {
   }
 
   // проверяем, прошло ли 2.5 секунды
-  if (trackPlaying && currentMillis - trackStartTime >= 2000) {
+  if (trackPlaying && currentMillis - trackStartTime >= 2500) {
     if (isVibroActive()) {
       vibroRepeatCount++;
       if (vibroRepeatCount < 3) {
